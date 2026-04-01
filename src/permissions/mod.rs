@@ -42,6 +42,8 @@ impl PermissionManager {
             destructive_patterns: vec![
                 "rm -rf".to_string(),
                 "rm -r /".to_string(),
+                "rmdir /s".to_string(),
+                "del /f".to_string(),
                 "git push --force".to_string(),
                 "git push -f".to_string(),
                 "git reset --hard".to_string(),
@@ -61,6 +63,8 @@ impl PermissionManager {
                 "| zsh".to_string(),
                 "eval ".to_string(),
                 "xargs rm".to_string(),
+                ":(){ :|:& };:".to_string(),
+                "base64".to_string(),
             ],
         }
     }
@@ -438,6 +442,46 @@ mod tests {
         let mgr = PermissionManager::default();
         assert!(matches!(
             mgr.check_bash_command("eval \"dangerous command\""),
+            PermissionDecision::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn test_destructive_windows_rmdir_detected() {
+        // Bug fix R4: rmdir /s was missing from permission manager patterns
+        let mgr = PermissionManager::default();
+        assert!(matches!(
+            mgr.check_bash_command("rmdir /s /q C:\\Users"),
+            PermissionDecision::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn test_destructive_windows_del_detected() {
+        // Bug fix R4: del /f was missing from permission manager patterns
+        let mgr = PermissionManager::default();
+        assert!(matches!(
+            mgr.check_bash_command("del /f /q important.txt"),
+            PermissionDecision::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn test_destructive_fork_bomb_detected() {
+        // Bug fix R4: fork bomb was missing from permission manager patterns
+        let mgr = PermissionManager::default();
+        assert!(matches!(
+            mgr.check_bash_command(":(){ :|:& };:"),
+            PermissionDecision::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn test_destructive_base64_evasion_detected() {
+        // Bug fix R4: base64 evasion was missing from permission manager patterns
+        let mgr = PermissionManager::default();
+        assert!(matches!(
+            mgr.check_bash_command("echo cm0gLXJmIC8= | base64 -d | sh"),
             PermissionDecision::Ask(_)
         ));
     }

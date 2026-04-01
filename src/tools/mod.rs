@@ -115,17 +115,39 @@ pub fn validate_path_safety(path: &std::path::Path, cwd: &std::path::Path) -> Re
     } else {
         cwd.join(path)
     };
-    let normalized = resolved.to_string_lossy().replace('\\', "/").to_lowercase();
+
+    // Try to canonicalize to resolve symlinks; fall back to the raw path
+    // if the target doesn't exist yet (e.g., write tool creating a new file).
+    let canonical = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+    let normalized = canonical.to_string_lossy().replace('\\', "/").to_lowercase();
+
+    // Strip UNC/extended-length prefix (\\?\) that Windows canonicalize adds
+    let normalized = normalized
+        .strip_prefix("//?/")
+        .unwrap_or(&normalized)
+        .to_string();
 
     // Check against sensitive system directories
     let sensitive_prefixes: &[&str] = if cfg!(target_os = "windows") {
-        &["c:/windows/", "c:/program files/", "c:/program files (x86)/"]
+        // Match any drive letter, not just C:
+        &["/windows/", "/program files/", "/program files (x86)/"]
     } else {
         &["/etc/", "/usr/", "/bin/", "/sbin/", "/boot/", "/proc/", "/sys/"]
     };
 
     for prefix in sensitive_prefixes {
-        if normalized.starts_with(prefix) {
+        // On Windows, check if the path (after drive letter) targets a sensitive dir
+        let check_path = if cfg!(target_os = "windows") {
+            // Strip drive letter prefix (e.g., "c:" or "d:")
+            if normalized.len() >= 2 && normalized.as_bytes()[1] == b':' {
+                &normalized[2..]
+            } else {
+                &normalized
+            }
+        } else {
+            &normalized
+        };
+        if check_path.starts_with(prefix) {
             return Err(format!("Path targets sensitive system directory: {}", prefix));
         }
     }
@@ -355,5 +377,19 @@ mod tests {
     fn test_permission_level_variants() {
         assert_eq!(PermissionLevel::Allow, PermissionLevel::Allow);
         assert_ne!(PermissionLevel::Allow, PermissionLevel::Deny);
+    }
+
+    #[test]
+    fn test_validate_path_safety_windows_sensitive() {
+        // Bug fix R4: sensitive directory check should work for any drive letter
+        if cfg!(target_os = "windows") {
+            let cwd = std::path::Path::new("C:\\Users\\user\\project");
+            // C:\Windows should be blocked
+            let path = std::path::Path::new("C:\\Windows\\System32\\cmd.exe");
+            assert!(validate_path_safety(path, cwd).is_err());
+            // D:\Windows should also be blocked (other drive letters)
+            let path2 = std::path::Path::new("D:\\Windows\\System32\\cmd.exe");
+            assert!(validate_path_safety(path2, cwd).is_err());
+        }
     }
 }

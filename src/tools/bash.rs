@@ -201,17 +201,19 @@ impl Tool for BashTool {
 
                 // Truncate excessively large output to prevent memory issues
                 if result_text.len() > Self::MAX_OUTPUT_BYTES {
-                    let truncated = &result_text[..Self::MAX_OUTPUT_BYTES];
-                    // Find a safe UTF-8 boundary
-                    let safe_end = truncated
-                        .char_indices()
-                        .last()
-                        .map(|(i, c)| i + c.len_utf8())
-                        .unwrap_or(0);
+                    // Find a safe UTF-8 char boundary at or before MAX_OUTPUT_BYTES.
+                    // We cannot slice at an arbitrary byte offset because it may
+                    // land in the middle of a multi-byte UTF-8 character, which
+                    // would panic in Rust.
+                    let mut safe_end = Self::MAX_OUTPUT_BYTES;
+                    while safe_end > 0 && !result_text.is_char_boundary(safe_end) {
+                        safe_end -= 1;
+                    }
+                    let total_len = result_text.len();
                     result_text = format!(
                         "{}\n\n[Output truncated: {} bytes total, showing first {} bytes]",
                         &result_text[..safe_end],
-                        result_text.len(),
+                        total_len,
                         safe_end
                     );
                 }
@@ -339,5 +341,31 @@ mod tests {
         let params = serde_json::json!({"command": "echo error >&2"});
         let result = tool.execute(params, &ctx).await.unwrap();
         assert!(result.output.contains("error"));
+    }
+
+    #[test]
+    fn test_truncation_utf8_boundary_safety() {
+        // Bug fix R4: slicing at an arbitrary byte offset could panic if it
+        // lands in the middle of a multi-byte UTF-8 character. Verify the
+        // truncation logic finds a safe char boundary.
+        let emoji = "\u{1F600}"; // 4-byte emoji
+        assert_eq!(emoji.len(), 4);
+
+        // Build a string where MAX_OUTPUT_BYTES would land inside a multi-byte char
+        // We simulate by using a smaller limit for testing purposes
+        let test_str = "a".repeat(BashTool::MAX_OUTPUT_BYTES - 2) + emoji;
+        assert!(test_str.len() > BashTool::MAX_OUTPUT_BYTES);
+
+        // The truncation code should find the safe boundary (MAX_OUTPUT_BYTES - 2)
+        // rather than panicking at MAX_OUTPUT_BYTES (which is inside the emoji)
+        let mut safe_end = BashTool::MAX_OUTPUT_BYTES;
+        while safe_end > 0 && !test_str.is_char_boundary(safe_end) {
+            safe_end -= 1;
+        }
+        // Should have backed off to before the emoji
+        assert!(test_str.is_char_boundary(safe_end));
+        assert_eq!(safe_end, BashTool::MAX_OUTPUT_BYTES - 2);
+        // Slicing should not panic
+        let _truncated = &test_str[..safe_end];
     }
 }
