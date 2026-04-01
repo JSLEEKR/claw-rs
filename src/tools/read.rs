@@ -12,6 +12,10 @@ impl ReadTool {
         Self
     }
 
+    /// Maximum file size we will read (50 MB).
+    /// Prevents OOM on accidental reads of huge files.
+    const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
+
     /// Resolve a file path (relative to cwd if not absolute)
     fn resolve_path(path: &str, cwd: &std::path::Path) -> PathBuf {
         let p = PathBuf::from(path);
@@ -120,6 +124,18 @@ impl Tool for ReadTool {
 
         if !path.is_file() {
             return Ok(ToolResult::error(format!("Not a file: {}", path.display())));
+        }
+
+        // Guard against reading excessively large files (OOM prevention)
+        let metadata = tokio::fs::metadata(&path)
+            .await
+            .map_err(|e| ToolError::Io(e))?;
+        if metadata.len() > Self::MAX_FILE_BYTES {
+            return Ok(ToolResult::error(format!(
+                "File too large: {} bytes (max {} bytes)",
+                metadata.len(),
+                Self::MAX_FILE_BYTES
+            )));
         }
 
         let content = tokio::fs::read_to_string(&path)

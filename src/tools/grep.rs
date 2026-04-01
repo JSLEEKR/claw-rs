@@ -24,6 +24,10 @@ impl GrepTool {
         Self
     }
 
+    /// Maximum file size we will search (50 MB).
+    /// Prevents OOM on accidental grep of huge files.
+    const MAX_SEARCH_BYTES: u64 = 50 * 1024 * 1024;
+
     /// Search a single file for matches
     ///
     /// Note: case sensitivity should be handled in the regex pattern itself
@@ -34,6 +38,13 @@ impl GrepTool {
         pattern: &Regex,
         _case_insensitive: bool,
     ) -> Vec<GrepMatch> {
+        // Skip files that are too large (OOM prevention)
+        if let Ok(meta) = std::fs::metadata(path) {
+            if meta.len() > Self::MAX_SEARCH_BYTES {
+                return Vec::new();
+            }
+        }
+
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(_) => return Vec::new(), // Skip binary/unreadable files

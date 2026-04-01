@@ -1,7 +1,7 @@
 # claw-rs
 
 [![Rust](https://img.shields.io/badge/Rust-2021-orange?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![Tests](https://img.shields.io/badge/Tests-170-success?style=for-the-badge)](https://github.com/JSLEEKR/claw-rs)
+[![Tests](https://img.shields.io/badge/Tests-176+-success?style=for-the-badge)](https://github.com/JSLEEKR/claw-rs)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
 > **Educational Purpose Only. Non-Commercial Use.**
@@ -47,11 +47,12 @@ export CLAW_API_KEY=sk-ant-...
 Or use a config file (`~/.claw-rs/config.yaml`):
 
 ```yaml
-api_key: ${ANTHROPIC_API_KEY}
-model: claude-sonnet-4-20250514
-base_url: https://api.anthropic.com/v1
-max_tokens: 4096
-system_prompt: "You are a helpful coding assistant."
+llm:
+  api_key: ${ANTHROPIC_API_KEY}
+  model: claude-sonnet-4-20250514
+  base_url: https://api.anthropic.com/v1
+  max_tokens: 4096
+  system_prompt: "You are a helpful coding assistant."
 ```
 
 ### Run
@@ -200,23 +201,23 @@ permissions:
 
 ## Tests
 
-170 tests across 8 modules:
+176+ tests across 8 modules:
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
-| tools/bash | 10 | Command execution, stderr, timeout, destructive detection |
-| tools/read | 11 | File reading, offset/limit, missing files, line numbers |
-| tools/write | 7 | File creation, overwrite, directory creation |
+| tools/bash | 14 | Command execution, stderr, timeout, destructive detection, UTF-8 truncation |
+| tools/read | 14 | File reading, offset/limit, missing files, line numbers, path safety, size guard |
+| tools/write | 6 | File creation, overwrite, directory creation |
 | tools/edit | 12 | Replace, not found, empty, multiple matches, multiline |
 | tools/glob | 8 | Patterns, empty results, nested dirs |
-| tools/grep | 13 | Regex, case insensitive, line numbers, walk dir |
-| tools/mod | 9 | Registry, definitions, permissions |
-| llm/types | 16 | Messages, content blocks, serde, usage, tokens |
+| tools/grep | 12 | Regex, case insensitive, line numbers, walk dir, size guard |
+| tools/mod | 14 | Registry, definitions, permissions, path validation |
+| llm/types | 16 | Messages, content blocks, serde, usage, tokens, multibyte |
 | llm/client | 5 | Request building, serialization |
-| llm/streaming | 11 | SSE parsing, partial chunks, tool use blocks |
+| llm/streaming | 13 | SSE parsing, partial chunks, tool use blocks, CRLF |
 | config | 8 | YAML loading, defaults, validation |
-| permissions | 14 | Allow/deny/ask, destructive detection, auto-approve |
-| session | 12 | Save/load, metadata, turn counting, compaction |
+| permissions | 22 | Allow/deny/ask, destructive detection, auto-approve, evasion |
+| session | 15 | Save/load, metadata, turn counting, compaction, path traversal |
 | agent | 8 | Agent creation, compact, clear, callbacks |
 | main | 10 | CLI parsing, slash commands |
 
@@ -230,7 +231,7 @@ permissions:
 | Dependencies | 0 (stdlib only) | 15 (tokio, reqwest, serde, etc.) |
 | Tool execution | All stubs | All real |
 | LLM integration | None | Full (OpenAI-compatible + streaming) |
-| Tests | ~30 | 154 |
+| Tests | ~30 | 176+ |
 | Binary | N/A (Python script) | Single binary (~5MB) |
 | Performance | Python interpreter | Native compiled |
 

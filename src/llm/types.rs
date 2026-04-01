@@ -292,14 +292,17 @@ pub enum StreamEvent {
     Ping,
 }
 
-/// Estimate token count using a simple word-based heuristic
-/// Roughly 1 token per 4 characters for English text
+/// Estimate token count using a simple character-based heuristic.
+/// Roughly 1 token per 4 characters for English text.
+/// Uses `str::chars().count()` (Unicode scalar count) instead of byte length
+/// so that CJK / emoji text is not over-counted.
 pub fn estimate_token_count(text: &str) -> usize {
     if text.is_empty() {
         return 0;
     }
     // ~4 chars per token is a reasonable approximation
-    (text.len() + 3) / 4
+    let char_count = text.chars().count();
+    (char_count + 3) / 4
 }
 
 #[cfg(test)]
@@ -387,6 +390,18 @@ mod tests {
         assert!(estimate_token_count("hello world") > 0);
         // ~11 chars -> ~3 tokens
         assert_eq!(estimate_token_count("hello world"), 3);
+    }
+
+    #[test]
+    fn test_estimate_token_count_multibyte() {
+        // Bug fix R5: estimate_token_count used byte length instead of char count.
+        // "hello" (5 chars, 5 bytes) + 3 emoji (3 chars, 12 bytes) = 8 chars.
+        // Old (byte-based): (17+3)/4 = 5 tokens — over-count.
+        // New (char-based): (8+3)/4 = 2 tokens — correct.
+        let text = "hello\u{1F600}\u{1F601}\u{1F602}";
+        assert_eq!(text.chars().count(), 8);
+        assert_eq!(text.len(), 17); // bytes
+        assert_eq!(estimate_token_count(text), 2); // (8+3)/4 = 2
     }
 
     #[test]
