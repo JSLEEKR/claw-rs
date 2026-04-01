@@ -34,6 +34,10 @@ impl ReadTool {
             total_lines
         };
 
+        if total_lines == 0 {
+            return "(empty file)".to_string();
+        }
+
         if start >= total_lines {
             return format!("(file has {} lines, offset {} is past end)", total_lines, offset);
         }
@@ -185,8 +189,7 @@ mod tests {
     fn test_format_empty_content() {
         let content = "";
         let formatted = ReadTool::format_with_line_numbers(content, 0, None);
-        // Empty file has 0 lines, offset 0 is past end
-        assert!(formatted.contains("past end") || formatted.is_empty());
+        assert_eq!(formatted, "(empty file)");
     }
 
     #[test]

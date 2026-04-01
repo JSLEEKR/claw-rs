@@ -1,7 +1,7 @@
 # claw-rs
 
 [![Rust](https://img.shields.io/badge/Rust-2021-orange?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![Tests](https://img.shields.io/badge/Tests-154-success?style=for-the-badge)](https://github.com/JSLEEKR/claw-rs)
+[![Tests](https://img.shields.io/badge/Tests-170-success?style=for-the-badge)](https://github.com/JSLEEKR/claw-rs)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
 > **Educational Purpose Only. Non-Commercial Use.**
@@ -200,7 +200,7 @@ permissions:
 
 ## Tests
 
-154 tests across 8 modules:
+170 tests across 8 modules:
 
 | Module | Tests | Coverage |
 |--------|-------|----------|

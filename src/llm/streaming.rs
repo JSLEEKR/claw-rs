@@ -23,6 +23,13 @@ impl SseParser {
         self.buffer.push_str(chunk);
         let mut events = Vec::new();
 
+        // SSE spec: events are separated by blank lines.
+        // Normalize \r\n to \n so we only need to search for "\n\n".
+        // This handles Windows-style HTTP responses and mixed line endings.
+        if self.buffer.contains('\r') {
+            self.buffer = self.buffer.replace("\r\n", "\n").replace('\r', "\n");
+        }
+
         while let Some(pos) = self.buffer.find("\n\n") {
             let block = self.buffer[..pos].to_string();
             self.buffer = self.buffer[pos + 2..].to_string();
@@ -281,5 +288,36 @@ mod tests {
             }
             _ => panic!("Expected ContentBlockDelta"),
         }
+    }
+
+    #[test]
+    fn test_crlf_line_endings() {
+        // Bug fix: SSE responses with \r\n line endings should be parsed correctly
+        let mut parser = SseParser::new();
+        let chunk = "event: ping\r\ndata: {}\r\n\r\n";
+        let events = parser.feed(chunk);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0].as_ref().unwrap(), StreamEvent::Ping));
+    }
+
+    #[test]
+    fn test_crlf_partial_chunks() {
+        // \r\n across chunk boundaries
+        let mut parser = SseParser::new();
+        let events1 = parser.feed("event: ping\r\n");
+        assert!(events1.is_empty());
+        let events2 = parser.feed("data: {}\r\n\r\n");
+        assert_eq!(events2.len(), 1);
+        assert!(matches!(events2[0].as_ref().unwrap(), StreamEvent::Ping));
+    }
+
+    #[test]
+    fn test_mixed_line_endings() {
+        // Some lines \r\n, some \n
+        let mut parser = SseParser::new();
+        let chunk = "event: ping\r\ndata: {}\n\n";
+        let events = parser.feed(chunk);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0].as_ref().unwrap(), StreamEvent::Ping));
     }
 }
