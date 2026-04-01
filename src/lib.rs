@@ -4,11 +4,17 @@
 //! For educational purposes only, non-commercial use.
 
 pub mod agent;
+pub mod bootstrap;
+pub mod commands;
 pub mod config;
+pub mod context;
 pub mod llm;
 pub mod permissions;
 pub mod session;
+pub mod streaming;
 pub mod tools;
+pub mod transcript;
+pub mod usage;
 
 /// Top-level error type for claw-rs
 #[derive(Debug, thiserror::Error)]

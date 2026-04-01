@@ -8,6 +8,10 @@ mod glob_tool;
 mod grep;
 mod read;
 mod write;
+mod web_fetch;
+mod web_search;
+mod ask_user;
+mod notebook;
 
 pub use bash::BashTool;
 pub use edit::EditTool;
@@ -15,6 +19,10 @@ pub use glob_tool::GlobTool;
 pub use grep::GrepTool;
 pub use read::ReadTool;
 pub use write::WriteTool;
+pub use web_fetch::WebFetchTool;
+pub use web_search::WebSearchTool;
+pub use ask_user::AskUserTool;
+pub use notebook::NotebookTool;
 
 use crate::llm::ToolDefinition;
 use async_trait::async_trait;
@@ -220,6 +228,10 @@ impl ToolRegistry {
         registry.register(Arc::new(EditTool::new()));
         registry.register(Arc::new(GlobTool::new()));
         registry.register(Arc::new(GrepTool::new()));
+        registry.register(Arc::new(WebFetchTool::new()));
+        registry.register(Arc::new(WebSearchTool::new()));
+        registry.register(Arc::new(AskUserTool::with_fixed_response("(non-interactive mode)".into())));
+        registry.register(Arc::new(NotebookTool::new()));
         registry
     }
 
@@ -296,7 +308,7 @@ mod tests {
     #[test]
     fn test_registry_with_defaults() {
         let registry = ToolRegistry::with_defaults();
-        assert_eq!(registry.len(), 6);
+        assert_eq!(registry.len(), 10);
         assert!(registry.get("bash").is_some());
         assert!(registry.get("read").is_some());
         assert!(registry.get("write").is_some());
@@ -317,7 +329,7 @@ mod tests {
     fn test_registry_definitions() {
         let registry = ToolRegistry::with_defaults();
         let defs = registry.definitions();
-        assert_eq!(defs.len(), 6);
+        assert_eq!(defs.len(), 10);
         // Check sorted by name
         for i in 1..defs.len() {
             assert!(defs[i - 1].name <= defs[i].name);

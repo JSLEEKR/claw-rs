@@ -431,7 +431,7 @@ mod tests {
         let agent = Agent::new(&config);
         assert_eq!(agent.session().message_count(), 0);
         assert_eq!(agent.total_usage().total(), 0);
-        assert_eq!(agent.tools().len(), 6);
+        assert_eq!(agent.tools().len(), 10);
     }
 
     #[test]
