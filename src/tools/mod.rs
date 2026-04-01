@@ -92,7 +92,7 @@ pub struct ToolContext {
 
 /// Validate that a resolved path does not traverse outside the working directory
 /// using ".." components. Returns an error message if the path is suspicious.
-pub fn validate_path_safety(path: &std::path::Path, _cwd: &std::path::Path) -> Result<(), String> {
+pub fn validate_path_safety(path: &std::path::Path, cwd: &std::path::Path) -> Result<(), String> {
     // Normalize the path string to check for traversal patterns
     let path_str = path.to_string_lossy();
 
@@ -101,19 +101,31 @@ pub fn validate_path_safety(path: &std::path::Path, _cwd: &std::path::Path) -> R
         return Err("Path contains null byte".to_string());
     }
 
-    // For absolute paths, canonicalize and check they don't escape via symlinks
-    // For now, just check that the path doesn't contain suspicious patterns
-    // like writing to system directories
+    // Check for ".." path traversal components
+    for component in path.components() {
+        if component == std::path::Component::ParentDir {
+            return Err("Path contains '..' traversal component".to_string());
+        }
+    }
+
+    // For absolute paths, canonicalize both and verify the target is under cwd
+    // (or at least not targeting sensitive system directories)
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+    let normalized = resolved.to_string_lossy().replace('\\', "/").to_lowercase();
+
+    // Check against sensitive system directories
     let sensitive_prefixes: &[&str] = if cfg!(target_os = "windows") {
-        &["C:\\Windows\\", "C:\\Program Files\\"]
+        &["c:/windows/", "c:/program files/", "c:/program files (x86)/"]
     } else {
         &["/etc/", "/usr/", "/bin/", "/sbin/", "/boot/", "/proc/", "/sys/"]
     };
 
-    let normalized = path_str.replace('\\', "/").to_lowercase();
     for prefix in sensitive_prefixes {
-        let norm_prefix = prefix.replace('\\', "/").to_lowercase();
-        if normalized.starts_with(&norm_prefix) {
+        if normalized.starts_with(prefix) {
             return Err(format!("Path targets sensitive system directory: {}", prefix));
         }
     }
@@ -329,6 +341,13 @@ mod tests {
     fn test_validate_path_safety_null_byte() {
         let cwd = std::path::Path::new("/home/user");
         let path = std::path::Path::new("/home/user/file\0.txt");
+        assert!(validate_path_safety(path, cwd).is_err());
+    }
+
+    #[test]
+    fn test_validate_path_safety_traversal() {
+        let cwd = std::path::Path::new("/home/user/project");
+        let path = std::path::Path::new("/home/user/project/../../etc/shadow");
         assert!(validate_path_safety(path, cwd).is_err());
     }
 

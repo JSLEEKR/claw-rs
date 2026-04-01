@@ -189,8 +189,16 @@ impl SessionStore {
     }
 
     /// Get the file path for a session
+    ///
+    /// Sanitizes session_id to prevent path traversal attacks (e.g., "../../etc/crontab").
     fn session_path(&self, session_id: &str) -> PathBuf {
-        self.storage_dir.join(format!("{}.json", session_id))
+        // Strip any path separators and ".." to prevent directory traversal
+        let sanitized: String = session_id
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        let safe_id = if sanitized.is_empty() { "invalid" } else { &sanitized };
+        self.storage_dir.join(format!("{}.json", safe_id))
     }
 }
 
@@ -330,6 +338,25 @@ mod tests {
         let store = SessionStore::with_dir(dir.path().to_path_buf()).unwrap();
         // Should not error
         store.delete("nonexistent").await.unwrap();
+    }
+
+    #[test]
+    fn test_session_path_traversal_sanitized() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::with_dir(dir.path().to_path_buf()).unwrap();
+        // Malicious session ID with path traversal should be sanitized
+        let path = store.session_path("../../etc/crontab");
+        let path_str = path.to_string_lossy();
+        // Path separators and dots are stripped, no traversal possible
+        assert!(!path_str.contains(".."));
+        assert!(!path_str.contains('/') || path_str.starts_with(&dir.path().to_string_lossy().to_string()));
+        // The sanitized name should not contain path separators
+        let file_name = path.file_stem().unwrap().to_string_lossy();
+        assert!(!file_name.contains('/'));
+        assert!(!file_name.contains('\\'));
+        assert!(!file_name.contains(".."));
+        // Result should be within storage dir
+        assert!(path.starts_with(dir.path()));
     }
 
     #[test]

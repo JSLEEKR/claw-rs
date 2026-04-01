@@ -27,19 +27,30 @@ impl SseParser {
             let block = self.buffer[..pos].to_string();
             self.buffer = self.buffer[pos + 2..].to_string();
 
+            let mut event_type: Option<String> = None;
+            let mut data_parts: Vec<String> = Vec::new();
+
             for line in block.lines() {
                 if line.starts_with("event: ") {
-                    self.current_event_type = Some(line[7..].trim().to_string());
+                    event_type = Some(line[7..].trim().to_string());
                 } else if line.starts_with("data: ") {
-                    let data = line[6..].trim();
-                    if let Some(ref event_type) = self.current_event_type.take() {
-                        match self.parse_event(event_type, data) {
-                            Some(result) => events.push(result),
-                            None => {}
-                        }
+                    data_parts.push(line[6..].to_string());
+                }
+            }
+
+            // SSE spec: multiple data lines are joined with newlines
+            if let Some(ref et) = event_type {
+                let data = data_parts.join("\n");
+                let trimmed = data.trim();
+                if !trimmed.is_empty() {
+                    if let Some(result) = self.parse_event(et, trimmed) {
+                        events.push(result);
                     }
                 }
             }
+            // Carry forward the event type for the next block if no data was found
+            // (per SSE spec, event type resets after dispatch; we reset here)
+            self.current_event_type = None;
         }
 
         events
