@@ -105,6 +105,11 @@ impl Tool for ReadTool {
 
         let path = Self::resolve_path(file_path, &ctx.cwd);
 
+        // Validate path safety (prevent reading sensitive system files)
+        if let Err(msg) = super::validate_path_safety(&path, &ctx.cwd) {
+            return Ok(ToolResult::error(format!("Unsafe path: {}", msg)));
+        }
+
         if !path.exists() {
             return Ok(ToolResult::error(format!("File not found: {}", path.display())));
         }
@@ -232,5 +237,39 @@ mod tests {
         let schema = tool.parameters_schema();
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["file_path"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_execute_sensitive_path_blocked() {
+        let tool = ReadTool::new();
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ToolContext {
+            cwd: dir.path().to_path_buf(),
+            auto_approve: false,
+        };
+        // Attempt to read a sensitive system file
+        let sensitive = if cfg!(target_os = "windows") {
+            "C:\\Windows\\System32\\config\\SAM"
+        } else {
+            "/etc/shadow"
+        };
+        let params = serde_json::json!({"file_path": sensitive});
+        let result = tool.execute(params, &ctx).await.unwrap();
+        assert!(result.is_error);
+        assert!(result.output.contains("Unsafe path"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_path_traversal_blocked() {
+        let tool = ReadTool::new();
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ToolContext {
+            cwd: dir.path().to_path_buf(),
+            auto_approve: false,
+        };
+        let params = serde_json::json!({"file_path": "../../etc/passwd"});
+        let result = tool.execute(params, &ctx).await.unwrap();
+        assert!(result.is_error);
+        assert!(result.output.contains("Unsafe path"));
     }
 }

@@ -196,6 +196,7 @@ impl SessionStore {
         let sanitized: String = session_id
             .chars()
             .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .take(255) // Limit length to prevent excessively long filenames
             .collect();
         let safe_id = if sanitized.is_empty() { "invalid" } else { &sanitized };
         self.storage_dir.join(format!("{}.json", safe_id))
@@ -357,6 +358,17 @@ mod tests {
         assert!(!file_name.contains(".."));
         // Result should be within storage dir
         assert!(path.starts_with(dir.path()));
+    }
+
+    #[test]
+    fn test_session_id_length_limited() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::with_dir(dir.path().to_path_buf()).unwrap();
+        let long_id = "a".repeat(1000);
+        let path = store.session_path(&long_id);
+        let file_name = path.file_stem().unwrap().to_string_lossy();
+        // Should be truncated to 255 characters max
+        assert!(file_name.len() <= 255);
     }
 
     #[test]

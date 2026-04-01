@@ -206,6 +206,11 @@ impl Tool for GrepTool {
             ctx.cwd.clone()
         };
 
+        // Validate path safety (prevent searching sensitive system directories)
+        if let Err(msg) = super::validate_path_safety(&search_path, &ctx.cwd) {
+            return Ok(ToolResult::error(format!("Unsafe path: {}", msg)));
+        }
+
         // Build regex with case sensitivity flag
         let regex_pattern = if case_insensitive {
             format!("(?i){}", pattern_str)

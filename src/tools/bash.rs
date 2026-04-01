@@ -25,7 +25,13 @@ impl BashTool {
         }
     }
 
+    /// Maximum output size in bytes (10 MB)
+    const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
+
     /// Check if a command is potentially destructive
+    ///
+    /// Normalizes whitespace to collapse spaces, preventing bypass via extra spaces.
+    /// Also checks for shell metacharacter wrappers like eval, base64 piping, etc.
     pub fn is_destructive(command: &str) -> bool {
         let patterns = [
             "rm -rf",
@@ -49,8 +55,51 @@ impl BashTool {
             ":(){ :|:& };:",
         ];
 
-        let lower = command.to_lowercase();
-        patterns.iter().any(|p| lower.contains(&p.to_lowercase()))
+        // Normalize: collapse whitespace to single space, lowercase
+        let normalized: String = command
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+
+        // Check direct patterns against normalized command
+        if patterns.iter().any(|p| normalized.contains(&p.to_lowercase())) {
+            return true;
+        }
+
+        // Check for shell metacharacter wrappers that could hide destructive commands
+        let evasion_patterns = [
+            "eval ",       // eval "rm -rf /"
+            "base64",      // echo ... | base64 -d | sh
+            "| sh",        // pipe to shell
+            "| bash",      // pipe to bash
+            "| zsh",       // pipe to zsh
+            "xargs rm",    // xargs-based deletion
+            "find.*-delete", // find with -delete
+        ];
+
+        for pattern in &evasion_patterns {
+            if pattern.contains(".*") {
+                // Treat as simple regex-like pattern
+                let parts: Vec<&str> = pattern.split(".*").collect();
+                if parts.len() == 2 {
+                    if let (Some(start_pos), true) = (
+                        normalized.find(parts[0]),
+                        normalized.contains(parts[1]),
+                    ) {
+                        if let Some(end_pos) = normalized.find(parts[1]) {
+                            if end_pos > start_pos {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } else if normalized.contains(pattern) {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
@@ -150,6 +199,23 @@ impl Tool for BashTool {
                     result_text = "(no output)".to_string();
                 }
 
+                // Truncate excessively large output to prevent memory issues
+                if result_text.len() > Self::MAX_OUTPUT_BYTES {
+                    let truncated = &result_text[..Self::MAX_OUTPUT_BYTES];
+                    // Find a safe UTF-8 boundary
+                    let safe_end = truncated
+                        .char_indices()
+                        .last()
+                        .map(|(i, c)| i + c.len_utf8())
+                        .unwrap_or(0);
+                    result_text = format!(
+                        "{}\n\n[Output truncated: {} bytes total, showing first {} bytes]",
+                        &result_text[..safe_end],
+                        result_text.len(),
+                        safe_end
+                    );
+                }
+
                 // Add exit code info if non-zero
                 if !output.status.success() {
                     let code = output.status.code().unwrap_or(-1);
@@ -196,6 +262,29 @@ mod tests {
         assert!(!BashTool::is_destructive("ls -la"));
         assert!(!BashTool::is_destructive("git status"));
         assert!(!BashTool::is_destructive("cargo test"));
+    }
+
+    #[test]
+    fn test_is_destructive_extra_whitespace() {
+        // Extra spaces should still be detected after normalization
+        assert!(BashTool::is_destructive("rm  -rf  /"));
+        assert!(BashTool::is_destructive("git  push  --force"));
+    }
+
+    #[test]
+    fn test_is_destructive_eval_wrapper() {
+        assert!(BashTool::is_destructive("eval \"rm -rf /\""));
+    }
+
+    #[test]
+    fn test_is_destructive_pipe_to_shell() {
+        assert!(BashTool::is_destructive("echo something | sh"));
+        assert!(BashTool::is_destructive("cat script.sh | bash"));
+    }
+
+    #[test]
+    fn test_is_destructive_find_delete() {
+        assert!(BashTool::is_destructive("find / -name '*.log' -delete"));
     }
 
     #[test]

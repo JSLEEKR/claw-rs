@@ -5,6 +5,7 @@ use super::types::*;
 use super::LlmError;
 use crate::config::LlmConfig;
 use futures::Stream;
+use std::collections::VecDeque;
 use std::pin::Pin;
 
 /// LLM client for communicating with the Anthropic API
@@ -155,7 +156,7 @@ impl LlmClient {
 struct SseStream {
     inner: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
     parser: SseParser,
-    pending: Vec<Result<StreamEvent, LlmError>>,
+    pending: VecDeque<Result<StreamEvent, LlmError>>,
 }
 
 impl SseStream {
@@ -163,7 +164,7 @@ impl SseStream {
         Self {
             inner: Box::pin(stream),
             parser: SseParser::new(),
-            pending: Vec::new(),
+            pending: VecDeque::new(),
         }
     }
 }
@@ -175,23 +176,24 @@ impl Stream for SseStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        // Return pending events first
-        if !self.pending.is_empty() {
-            return std::task::Poll::Ready(Some(self.pending.remove(0)));
+        // Return pending events first (O(1) with VecDeque)
+        if let Some(event) = self.pending.pop_front() {
+            return std::task::Poll::Ready(Some(event));
         }
 
         // Poll for more data
         match Pin::new(&mut self.inner).poll_next(cx) {
             std::task::Poll::Ready(Some(Ok(bytes))) => {
                 let text = String::from_utf8_lossy(&bytes);
-                let mut events = self.parser.feed(&text);
+                let events = self.parser.feed(&text);
 
                 if events.is_empty() {
                     cx.waker().wake_by_ref();
                     std::task::Poll::Pending
                 } else {
-                    let first = events.remove(0);
-                    self.pending = events;
+                    let mut deque: VecDeque<_> = events.into();
+                    let first = deque.pop_front().unwrap();
+                    self.pending = deque;
                     std::task::Poll::Ready(Some(first))
                 }
             }

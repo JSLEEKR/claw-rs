@@ -100,6 +100,11 @@ impl Tool for GlobTool {
             ctx.cwd.clone()
         };
 
+        // Validate path safety (prevent globbing sensitive system directories)
+        if let Err(msg) = super::validate_path_safety(&base_dir, &ctx.cwd) {
+            return Ok(ToolResult::error(format!("Unsafe path: {}", msg)));
+        }
+
         match Self::find_matches(pattern, &base_dir) {
             Ok(paths) => {
                 if paths.is_empty() {
