@@ -9,7 +9,7 @@
 | Dependencies | 0 (stdlib) | 15 (tokio, reqwest, serde, etc.) |
 | Tool Execution | All stubs | All real |
 | LLM Integration | None | Full (OpenAI-compatible + SSE) |
-| Tests | ~30 | 141 |
+| Tests | ~30 | 339 |
 | Binary | Python script | Single binary (~5MB) |
 
 ## What We Reimplemented
@@ -53,4 +53,4 @@ Real Server-Sent Events parsing from LLM API responses for streaming output.
 
 ## Conclusion
 
-claw-rs transforms a structural study tool into a working AI agent runtime. Every stub in the original is replaced with real implementation. The Rust version adds 4.7x more test coverage while delivering actual tool execution, LLM integration, and multi-turn agent orchestration.
+claw-rs transforms a structural study tool into a working AI agent runtime. Every stub in the original is replaced with real implementation. The Rust version adds 11x more test coverage (339 vs ~30) while delivering actual tool execution, LLM integration, and multi-turn agent orchestration.

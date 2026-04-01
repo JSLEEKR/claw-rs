@@ -1,7 +1,7 @@
 # claw-rs
 
 [![Rust](https://img.shields.io/badge/Rust-2021-orange?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![Tests](https://img.shields.io/badge/Tests-176+-success?style=for-the-badge)](https://github.com/JSLEEKR/claw-rs)
+[![Tests](https://img.shields.io/badge/Tests-339-success?style=for-the-badge)](https://github.com/JSLEEKR/claw-rs)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
 > **Educational Purpose Only. Non-Commercial Use.**
@@ -145,6 +145,10 @@ pub trait Tool: Send + Sync {
 | `edit` | Find-and-replace in files (old_string → new_string) |
 | `glob` | Find files by pattern (e.g., `**/*.rs`) |
 | `grep` | Search file contents with regex |
+| `web_fetch` | Fetch URLs and extract text (SSRF-protected) |
+| `web_search` | Search the web via DuckDuckGo |
+| `ask_user` | Interactive user prompt during agent execution |
+| `notebook` | Read and display Jupyter notebook (.ipynb) files |
 
 ### `src/agent/` — Agent Loop
 
@@ -201,7 +205,7 @@ permissions:
 
 ## Tests
 
-176+ tests across 8 modules:
+339 tests across 14 modules:
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
@@ -211,6 +215,10 @@ permissions:
 | tools/edit | 12 | Replace, not found, empty, multiple matches, multiline |
 | tools/glob | 8 | Patterns, empty results, nested dirs |
 | tools/grep | 12 | Regex, case insensitive, line numbers, walk dir, size guard |
+| tools/web_fetch | 20 | HTML stripping, SSRF protection, entities, UTF-8 truncation |
+| tools/web_search | 14 | DDG parsing, percent decode, UTF-8, body size limits |
+| tools/ask_user | 8 | Callbacks, fixed response, missing params |
+| tools/notebook | 14 | Cell formatting, ANSI stripping, file size guard |
 | tools/mod | 14 | Registry, definitions, permissions, path validation |
 | llm/types | 16 | Messages, content blocks, serde, usage, tokens, multibyte |
 | llm/client | 5 | Request building, serialization |
@@ -219,6 +227,12 @@ permissions:
 | permissions | 22 | Allow/deny/ask, destructive detection, auto-approve, evasion |
 | session | 15 | Save/load, metadata, turn counting, compaction, path traversal |
 | agent | 8 | Agent creation, compact, clear, callbacks |
+| bootstrap | 10 | Platform detection, project scanning, prompt generation |
+| commands | 29 | Slash commands, aliases, case-insensitive lookup, all commands |
+| streaming | 12 | Event types, renderer, colors, serde |
+| transcript | 13 | Append, compact, replay, flush, dirty tracking |
+| usage | 19 | Token tracking, cost calculation, pricing models |
+| context | 23 | Project detection, git info, file counting, workspace discovery |
 | main | 10 | CLI parsing, slash commands |
 
 ## Comparison with Original
@@ -231,14 +245,13 @@ permissions:
 | Dependencies | 0 (stdlib only) | 15 (tokio, reqwest, serde, etc.) |
 | Tool execution | All stubs | All real |
 | LLM integration | None | Full (OpenAI-compatible + streaming) |
-| Tests | ~30 | 176+ |
+| Tests | ~30 | 339 |
 | Binary | N/A (Python script) | Single binary (~5MB) |
 | Performance | Python interpreter | Native compiled |
 
 ## Limitations
 
 - No web browser tool (would need headless browser integration)
-- No notebook editing tool
 - No MCP server support
 - SSE streaming display is basic (no rich terminal formatting)
 - Token counting is estimation-based (not exact tiktoken)
