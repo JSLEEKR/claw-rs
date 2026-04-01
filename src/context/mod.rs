@@ -235,10 +235,31 @@ fn count_files_recursive(
 
 /// Detect git information from a directory
 pub fn detect_git_info(root: &Path) -> Option<GitInfo> {
-    let git_dir = root.join(".git");
-    if !git_dir.exists() {
+    let git_entry = root.join(".git");
+    if !git_entry.exists() {
         return None;
     }
+
+    // Handle both regular .git directory and .git file (worktrees/submodules)
+    // A .git file contains "gitdir: /path/to/actual/git/dir"
+    let git_dir = if git_entry.is_file() {
+        if let Ok(content) = std::fs::read_to_string(&git_entry) {
+            if let Some(dir_path) = content.trim().strip_prefix("gitdir: ") {
+                let p = PathBuf::from(dir_path.trim());
+                if p.is_absolute() {
+                    p
+                } else {
+                    root.join(p)
+                }
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    } else {
+        git_entry
+    };
 
     let mut info = GitInfo::default();
 
@@ -532,5 +553,27 @@ mod tests {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("requirements.txt"), "flask\n").unwrap();
         assert_eq!(detect_project_type(dir.path()), ProjectType::Python);
+    }
+
+    #[test]
+    fn test_git_info_worktree_file() {
+        // When .git is a file (worktree/submodule), it should follow the gitdir pointer
+        let dir = TempDir::new().unwrap();
+        let actual_git_dir = dir.path().join("actual_git");
+        std::fs::create_dir_all(&actual_git_dir).unwrap();
+        std::fs::write(actual_git_dir.join("HEAD"), "ref: refs/heads/feature\n").unwrap();
+
+        // Create .git file pointing to actual git dir
+        let worktree = dir.path().join("worktree");
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(
+            worktree.join(".git"),
+            format!("gitdir: {}", actual_git_dir.display()),
+        ).unwrap();
+
+        let info = detect_git_info(&worktree);
+        assert!(info.is_some());
+        let info = info.unwrap();
+        assert_eq!(info.branch, Some("feature".to_string()));
     }
 }

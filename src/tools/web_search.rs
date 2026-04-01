@@ -143,24 +143,24 @@ fn strip_tags(html: &str) -> String {
     result
 }
 
-/// Simple percent decoding
+/// Simple percent decoding with proper UTF-8 handling
 fn percent_decode(input: &str) -> String {
-    let mut result = String::new();
+    let mut decoded_bytes = Vec::with_capacity(input.len());
     let bytes = input.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
             let hex = &input[i + 1..i + 3];
             if let Ok(byte) = u8::from_str_radix(hex, 16) {
-                result.push(byte as char);
+                decoded_bytes.push(byte);
                 i += 3;
                 continue;
             }
         }
-        result.push(bytes[i] as char);
+        decoded_bytes.push(bytes[i]);
         i += 1;
     }
-    result
+    String::from_utf8(decoded_bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).to_string())
 }
 
 #[async_trait]
@@ -201,8 +201,19 @@ impl Tool for WebSearchTool {
 
         let max_results = params["max_results"].as_u64().unwrap_or(5) as usize;
 
-        // URL-encode the query
-        let encoded_query = query.replace(' ', "+");
+        // URL-encode the query (handle all special characters, not just spaces)
+        let encoded_query: String = query
+            .chars()
+            .map(|c| match c {
+                ' ' => "+".to_string(),
+                'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+                _ => {
+                    let mut buf = [0u8; 4];
+                    let encoded = c.encode_utf8(&mut buf);
+                    encoded.bytes().map(|b| format!("%{:02X}", b)).collect()
+                }
+            })
+            .collect();
         let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
 
         let client = reqwest::Client::builder()
@@ -325,5 +336,26 @@ mod tests {
         let ctx = ToolContext::default();
         let result = tool.execute(serde_json::json!({}), &ctx).await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_percent_decode_utf8() {
+        // Chinese character U+4E2D encoded as %E4%B8%AD
+        let decoded = percent_decode("%E4%B8%AD");
+        assert_eq!(decoded, "\u{4E2D}");
+    }
+
+    #[test]
+    fn test_percent_decode_mixed_utf8() {
+        // "hello 世界" with encoded spaces and CJK
+        let decoded = percent_decode("hello%20%E4%B8%96%E7%95%8C");
+        assert_eq!(decoded, "hello \u{4E16}\u{754C}");
+    }
+
+    #[test]
+    fn test_percent_decode_invalid_utf8_no_panic() {
+        // Invalid UTF-8 sequence: should not panic, returns lossy string
+        let decoded = percent_decode("%FF%FE");
+        assert!(!decoded.is_empty());
     }
 }

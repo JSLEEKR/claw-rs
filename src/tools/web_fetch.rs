@@ -145,9 +145,14 @@ impl WebFetchTool {
         // Clean up: collapse multiple newlines, trim
         let trimmed = result.trim().to_string();
 
-        // Limit output length
+        // Limit output length (truncate at a char boundary, not byte boundary)
         if trimmed.len() > 50_000 {
-            format!("{}...\n\n(truncated at 50000 characters)", &trimmed[..50_000])
+            // Find a valid UTF-8 boundary at or before 50_000 bytes
+            let mut end = 50_000;
+            while end > 0 && !trimmed.is_char_boundary(end) {
+                end -= 1;
+            }
+            format!("{}...\n\n(truncated at {} bytes)", &trimmed[..end], end)
         } else {
             trimmed
         }
@@ -199,6 +204,54 @@ impl Tool for WebFetchTool {
             ));
         }
 
+        // SSRF protection: block private/internal addresses
+        if let Ok(parsed) = url::Url::parse(url) {
+            let host = parsed.host_str().unwrap_or("");
+            let host_lower = host.to_lowercase();
+
+            // Block localhost and loopback variants
+            if host_lower == "localhost"
+                || host_lower == "127.0.0.1"
+                || host_lower == "[::1]"
+                || host_lower == "::1"
+                || host_lower == "0.0.0.0"
+            {
+                return Err(ToolError::InvalidParams(
+                    "URL targets a loopback address (SSRF protection)".into(),
+                ));
+            }
+
+            // Block cloud metadata endpoints
+            if host_lower == "169.254.169.254"
+                || host_lower == "metadata.google.internal"
+            {
+                return Err(ToolError::InvalidParams(
+                    "URL targets a cloud metadata endpoint (SSRF protection)".into(),
+                ));
+            }
+
+            // Block private IP ranges (10.x, 172.16-31.x, 192.168.x)
+            if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+                let is_private = match ip {
+                    std::net::IpAddr::V4(v4) => {
+                        v4.is_loopback()
+                            || v4.is_private()
+                            || v4.is_link_local()
+                            || v4.is_broadcast()
+                            || v4.is_unspecified()
+                    }
+                    std::net::IpAddr::V6(v6) => {
+                        v6.is_loopback() || v6.is_unspecified()
+                    }
+                };
+                if is_private {
+                    return Err(ToolError::InvalidParams(
+                        "URL targets a private/internal IP address (SSRF protection)".into(),
+                    ));
+                }
+            }
+        }
+
         // Build client with timeout
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -229,18 +282,29 @@ impl Tool for WebFetchTool {
             .unwrap_or("")
             .to_string();
 
-        // Read body with size limit
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read response body: {}", e)))?;
+        // Check content-length header before downloading (early reject)
+        if let Some(content_length) = response.content_length() {
+            if content_length > Self::MAX_BODY_BYTES as u64 {
+                return Ok(ToolResult::error(format!(
+                    "Response too large: {} bytes (max {})",
+                    content_length,
+                    Self::MAX_BODY_BYTES
+                )));
+            }
+        }
 
-        if bytes.len() > Self::MAX_BODY_BYTES {
-            return Ok(ToolResult::error(format!(
-                "Response too large: {} bytes (max {})",
-                bytes.len(),
-                Self::MAX_BODY_BYTES
-            )));
+        // Read body with size limit (streaming to avoid OOM on large responses)
+        let mut bytes = Vec::new();
+        let mut stream = response;
+        while let Some(chunk) = stream.chunk().await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read response body: {}", e)))? {
+            bytes.extend_from_slice(&chunk);
+            if bytes.len() > Self::MAX_BODY_BYTES {
+                return Ok(ToolResult::error(format!(
+                    "Response too large: exceeded {} byte limit during download",
+                    Self::MAX_BODY_BYTES
+                )));
+            }
         }
 
         let body = String::from_utf8_lossy(&bytes).to_string();
@@ -355,6 +419,82 @@ mod tests {
         let tool = WebFetchTool::new();
         let ctx = ToolContext::default();
         let result = tool.execute(serde_json::json!({}), &ctx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_ssrf_localhost() {
+        let tool = WebFetchTool::new();
+        let ctx = ToolContext::default();
+        let result = tool
+            .execute(serde_json::json!({"url": "http://localhost:8080/admin"}), &ctx)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("SSRF"));
+    }
+
+    #[tokio::test]
+    async fn test_ssrf_loopback() {
+        let tool = WebFetchTool::new();
+        let ctx = ToolContext::default();
+        let result = tool
+            .execute(serde_json::json!({"url": "http://127.0.0.1:9200/_cluster/health"}), &ctx)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("SSRF"));
+    }
+
+    #[tokio::test]
+    async fn test_ssrf_metadata_endpoint() {
+        let tool = WebFetchTool::new();
+        let ctx = ToolContext::default();
+        let result = tool
+            .execute(serde_json::json!({"url": "http://169.254.169.254/latest/meta-data/"}), &ctx)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("SSRF"));
+    }
+
+    #[tokio::test]
+    async fn test_ssrf_private_ip() {
+        let tool = WebFetchTool::new();
+        let ctx = ToolContext::default();
+        let result = tool
+            .execute(serde_json::json!({"url": "http://10.0.0.1/internal"}), &ctx)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("SSRF"));
+    }
+
+    #[tokio::test]
+    async fn test_ssrf_ipv6_loopback() {
+        let tool = WebFetchTool::new();
+        let ctx = ToolContext::default();
+        let result = tool
+            .execute(serde_json::json!({"url": "http://[::1]:8080/admin"}), &ctx)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("SSRF"));
+    }
+
+    #[test]
+    fn test_strip_html_utf8_truncation() {
+        // Create a string with multi-byte UTF-8 characters that exceeds 50_000 bytes
+        // Each CJK character is 3 bytes in UTF-8
+        let html: String = std::iter::repeat('\u{4E2D}').take(20_000).collect(); // 60_000 bytes
+        let result = WebFetchTool::strip_html(&html);
+        // Should not panic and should be valid UTF-8
+        assert!(result.contains("truncated"));
+        assert!(result.is_char_boundary(0)); // valid UTF-8 overall
+    }
+
+    #[tokio::test]
+    async fn test_ssrf_zero_ip() {
+        let tool = WebFetchTool::new();
+        let ctx = ToolContext::default();
+        let result = tool
+            .execute(serde_json::json!({"url": "http://0.0.0.0/"}), &ctx)
+            .await;
         assert!(result.is_err());
     }
 }

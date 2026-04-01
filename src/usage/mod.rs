@@ -110,8 +110,8 @@ pub fn calculate_cost(usage: &TokenUsage, model: &str) -> f64 {
 
 /// Format a cost as a USD string
 pub fn format_cost(cost: f64) -> String {
-    // Use abs to avoid negative zero display
-    let cost = if cost == 0.0 { 0.0 } else { cost };
+    // Normalize negative zero to positive zero, and clamp negative values
+    let cost = if cost <= 0.0 { 0.0 } else { cost };
     if cost < 0.01 {
         format!("${:.4}", cost)
     } else if cost < 1.0 {
@@ -411,5 +411,16 @@ mod tests {
         let usage = TokenUsage::default();
         assert_eq!(usage.total(), 0);
         assert_eq!(calculate_cost(&usage, "any-model"), 0.0);
+    }
+
+    #[test]
+    fn test_format_cost_negative_zero() {
+        // -0.0 should display as $0.0000, not $-0.0000
+        assert_eq!(format_cost(-0.0), "$0.0000");
+    }
+
+    #[test]
+    fn test_format_cost_zero() {
+        assert_eq!(format_cost(0.0), "$0.0000");
     }
 }
