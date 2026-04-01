@@ -124,6 +124,19 @@ impl WebFetchTool {
                             last_was_whitespace = true;
                             i += 6;
                             continue;
+                        } else if ahead.starts_with("&#39;") || ahead.starts_with("&apos") {
+                            // &apos; (6 chars) or &#39; (5 chars)
+                            if ahead.starts_with("&apos;") {
+                                result.push('\'');
+                                last_was_whitespace = false;
+                                i += 6;
+                                continue;
+                            } else if ahead.starts_with("&#39;") {
+                                result.push('\'');
+                                last_was_whitespace = false;
+                                i += 5;
+                                continue;
+                            }
                         }
                     }
                 }
@@ -363,6 +376,18 @@ mod tests {
         assert!(text.contains('<'));
         assert!(text.contains('>'));
         assert!(text.contains('"'));
+    }
+
+    #[test]
+    fn test_strip_html_apos_entity() {
+        // Bug fix R2: &apos; and &#39; should be decoded to apostrophe
+        let html = "<p>it&apos;s working</p>";
+        let text = WebFetchTool::strip_html(html);
+        assert!(text.contains("it's working"), "got: {}", text);
+
+        let html2 = "<p>it&#39;s also working</p>";
+        let text2 = WebFetchTool::strip_html(html2);
+        assert!(text2.contains("it's also working"), "got: {}", text2);
     }
 
     #[test]

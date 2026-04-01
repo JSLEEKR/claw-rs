@@ -19,6 +19,9 @@ impl WebSearchTool {
         Self
     }
 
+    /// Maximum response body size (5 MB) — prevents OOM on unexpectedly large responses
+    const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+
     /// Parse DuckDuckGo HTML results page into structured results
     pub fn parse_ddg_results(html: &str) -> Vec<SearchResult> {
         let mut results = Vec::new();
@@ -223,7 +226,7 @@ impl Tool for WebSearchTool {
             .build()
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to create HTTP client: {}", e)))?;
 
-        let response = client
+        let mut response = client
             .get(&url)
             .send()
             .await
@@ -236,10 +239,31 @@ impl Tool for WebSearchTool {
             )));
         }
 
-        let html = response
-            .text()
-            .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read response: {}", e)))?;
+        // Check content-length header before downloading (early reject)
+        if let Some(content_length) = response.content_length() {
+            if content_length > Self::MAX_BODY_BYTES as u64 {
+                return Ok(ToolResult::error(format!(
+                    "Search response too large: {} bytes (max {})",
+                    content_length,
+                    Self::MAX_BODY_BYTES
+                )));
+            }
+        }
+
+        // Read body with size limit (streaming to avoid OOM)
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read response: {}", e)))? {
+            bytes.extend_from_slice(&chunk);
+            if bytes.len() > Self::MAX_BODY_BYTES {
+                return Ok(ToolResult::error(format!(
+                    "Search response too large: exceeded {} byte limit during download",
+                    Self::MAX_BODY_BYTES
+                )));
+            }
+        }
+
+        let html = String::from_utf8_lossy(&bytes).to_string();
 
         let mut results = Self::parse_ddg_results(&html);
         results.truncate(max_results);
@@ -336,6 +360,13 @@ mod tests {
         let ctx = ToolContext::default();
         let result = tool.execute(serde_json::json!({}), &ctx).await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_max_body_bytes_constant() {
+        // Bug fix R2: web_search must have body size limit to prevent OOM
+        assert!(WebSearchTool::MAX_BODY_BYTES > 0);
+        assert_eq!(WebSearchTool::MAX_BODY_BYTES, 5 * 1024 * 1024);
     }
 
     #[test]

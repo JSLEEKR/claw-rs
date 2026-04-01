@@ -52,6 +52,10 @@ impl NotebookTool {
         Self
     }
 
+    /// Maximum file size we will read (50 MB).
+    /// Prevents OOM on accidental reads of huge notebook files.
+    const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
+
     /// Format a notebook as readable text
     pub fn format_notebook(content: &str) -> Result<String, String> {
         let notebook: Notebook =
@@ -220,6 +224,18 @@ impl Tool for NotebookTool {
             _ => {
                 return Ok(ToolResult::error("File must have .ipynb extension"));
             }
+        }
+
+        // Guard against reading excessively large files (OOM prevention)
+        let metadata = tokio::fs::metadata(&resolved)
+            .await
+            .map_err(|e| ToolError::Io(e))?;
+        if metadata.len() > Self::MAX_FILE_BYTES {
+            return Ok(ToolResult::error(format!(
+                "Notebook file too large: {} bytes (max {} bytes)",
+                metadata.len(),
+                Self::MAX_FILE_BYTES
+            )));
         }
 
         let content = tokio::fs::read_to_string(&resolved)
@@ -407,6 +423,13 @@ mod tests {
             .unwrap();
         assert!(result.is_error);
         assert!(result.output.contains(".ipynb"));
+    }
+
+    #[test]
+    fn test_max_file_bytes_constant() {
+        // Bug fix R2: notebook tool must have a file size guard to prevent OOM
+        assert!(NotebookTool::MAX_FILE_BYTES > 0);
+        assert_eq!(NotebookTool::MAX_FILE_BYTES, 50 * 1024 * 1024);
     }
 
     #[tokio::test]

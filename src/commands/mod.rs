@@ -123,11 +123,13 @@ impl CommandRegistry {
     }
 
     /// Register a command
+    ///
+    /// Names and aliases are stored in lowercase for case-insensitive lookup.
     pub fn register(&mut self, command: Command) {
         let idx = self.commands.len();
-        self.lookup.insert(command.name.clone(), idx);
+        self.lookup.insert(command.name.to_lowercase(), idx);
         for alias in &command.aliases {
-            self.lookup.insert(alias.clone(), idx);
+            self.lookup.insert(alias.to_lowercase(), idx);
         }
         self.commands.push(command);
     }
@@ -642,6 +644,25 @@ mod tests {
         assert!(names.contains(&"help"));
         assert!(names.contains(&"clear"));
         assert!(names.contains(&"quit"));
+    }
+
+    #[test]
+    fn test_register_uppercase_name_lookup() {
+        // Bug fix R2: registering a command with uppercase name should still
+        // be findable via case-insensitive lookup
+        let mut registry = CommandRegistry::new();
+        registry.register(Command::new(
+            "MyCommand",
+            vec!["MC".into()],
+            "Test",
+            |_, _| CommandResult::ok("ok"),
+        ));
+        // Lookup should work regardless of case
+        assert!(registry.get("mycommand").is_some());
+        assert!(registry.get("MYCOMMAND").is_some());
+        assert!(registry.get("MyCommand").is_some());
+        assert!(registry.get("mc").is_some());
+        assert!(registry.get("MC").is_some());
     }
 
     #[test]
